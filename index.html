@@ -69,14 +69,14 @@
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87CEEB); 
-            scene.fog = new THREE.Fog(0x87CEEB, 8, 35); // Fog closer to hide map edges gracefully
+            scene.fog = new THREE.Fog(0x87CEEB, 8, 35);
 
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 10, 0); 
 
-            // RESTORED GRAPHICS: High pixel ratio, shadows ON
             renderer = new THREE.WebGLRenderer({ antialias: false }); 
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+            // Capped pixel ratio to 1.5 for a massive mobile performance boost without losing much quality
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); 
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.shadowMap.enabled = true; 
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -105,28 +105,31 @@
             sunLight.position.set(20, 40, 20); 
             sunLight.castShadow = true;
             
-            // Optimized shadow settings for mobile
-            sunLight.shadow.mapSize.width = 1024; 
-            sunLight.shadow.mapSize.height = 1024;
+            // Tighter shadow bounds and a slightly smaller shadow map size 
+            sunLight.shadow.mapSize.width = 512; 
+            sunLight.shadow.mapSize.height = 512;
             sunLight.shadow.camera.near = 0.5;
             sunLight.shadow.camera.far = 100;
-            sunLight.shadow.camera.left = -20;
-            sunLight.shadow.camera.right = 20;
-            sunLight.shadow.camera.top = 20;
-            sunLight.shadow.camera.bottom = -20;
+            sunLight.shadow.camera.left = -15;
+            sunLight.shadow.camera.right = 15;
+            sunLight.shadow.camera.top = 15;
+            sunLight.shadow.camera.bottom = -15;
             sunLight.shadow.bias = -0.001; 
             scene.add(sunLight);
         }
 
         function loadWorld() {
             const loader = new GLTFLoader();
-            loader.load('soilblock.glb', (gltf) => {
+            loader.load('soilblock2.glb', (gltf) => {
                 let mesh;
                 gltf.scene.traverse(n => { 
                     if(n.isMesh) { 
                         mesh = n; 
                         mesh.castShadow = true; 
                         mesh.receiveShadow = true; 
+                        // Stop rendering the inside of the blocks
+                        mesh.material.side = THREE.FrontSide; 
+                        mesh.material.shadowSide = THREE.FrontSide;
                     }
                 });
 
@@ -138,12 +141,9 @@
                 const sY = size.y;
                 const sZ = size.z;
 
-                // THE LAG FIX: Smaller Map Size (10x10 grid instead of 16x16)
-                // This means ~100 blocks to render instead of 256+.
                 const mapSize = 10; 
                 const matrices = [];
                 
-                // VERTICAL ROTATION (X-Axis, 90 Degrees)
                 const quaternion = new THREE.Quaternion();
                 quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
                 const scale = new THREE.Vector3(1, 1, 1);
@@ -152,7 +152,8 @@
                     for(let z = -mapSize/2; z < mapSize/2; z++) {
                         let hillHeight = Math.floor(Math.sin(x * 0.4) * 2 + Math.cos(z * 0.4) * 2) + 2;
                         
-                        for(let y = 0; y <= hillHeight; y++) {
+                        // Only spawn the top 2 layers instead of rendering solid blocks underground
+                        for(let y = Math.max(0, hillHeight - 1); y <= hillHeight; y++) {
                             const tempMatrix = new THREE.Matrix4();
                             const position = new THREE.Vector3(x * sX, y * sY, z * sZ);
                             
@@ -165,6 +166,9 @@
                 instancedBlocks = new THREE.InstancedMesh(mesh.geometry, mesh.material, matrices.length);
                 instancedBlocks.castShadow = true;
                 instancedBlocks.receiveShadow = true;
+                
+                // Enable Frustum Culling so blocks behind you aren't drawn
+                instancedBlocks.frustumCulled = true;
 
                 for(let i = 0; i < matrices.length; i++) {
                     instancedBlocks.setMatrixAt(i, matrices[i]);
